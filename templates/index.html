@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Petrol Leakage Detection System | Real-Time Two-Zone Monitoring</title>
+  
+  <!-- Modern Industrial Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Chart.js for real-time graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="theme-dark">
+  <!-- Live Audio Warning Banner -->
+  <div id="audioAlertPrompt" class="audio-alert-prompt hidden">
+    <div class="audio-prompt-content">
+      <i class="fa-solid fa-volume-high"></i>
+      <span>Enable live audio alarm chime for emergency alerts?</span>
+      <button id="btnEnableAudio" class="btn btn-sm btn-primary">Enable Audio</button>
+      <button id="btnDismissAudio" class="btn btn-sm btn-ghost">Dismiss</button>
+    </div>
+  </div>
+
+  <!-- Main Application Container -->
+  <div class="app-container">
+    
+    <!-- ========================================================================= -->
+    <!-- A. HEADER SECTION -->
+    <!-- ========================================================================= -->
+    <header class="dashboard-header">
+      <div class="header-branding">
+        <div class="brand-logo-glow">
+          <i class="fa-solid fa-fire-flame-curved brand-icon"></i>
+          <span class="sensor-indicator-pulse"></span>
+        </div>
+        <div class="brand-titles">
+          <div class="brand-title-wrap">
+            <h1 class="project-title">Petrol Leakage Detection System</h1>
+            <span class="badge badge-tech"><i class="fa-solid fa-bolt"></i> ESP32 Live</span>
+          </div>
+          <p class="project-subtitle">
+            <i class="fa-solid fa-shield-halved"></i> Real-Time Two-Zone Monitoring
+          </p>
+        </div>
+      </div>
+
+      <div class="header-telemetry-strip">
+        <!-- ESP32 Connection Status & COM Port Quick Selector -->
+        <div class="telemetry-pill" id="esp32Pill">
+          <span class="pill-label"><i class="fa-solid fa-microchip"></i> ESP32 Hardware</span>
+          <span class="pill-value status-disconnected" id="esp32ConnectionText">
+            <span class="pulse-dot"></span> <span id="serialStatusLabel">Disconnected</span>
+          </span>
+          <button class="pill-action-btn" id="btnOpenSerialModal" title="Select COM Port">
+            <i class="fa-solid fa-plug"></i> <span id="comPortBtnLabel">Select Port</span>
+          </button>
+        </div>
+
+        <!-- Last Data Timestamp -->
+        <div class="telemetry-pill">
+          <span class="pill-label"><i class="fa-regular fa-clock"></i> Last Data</span>
+          <span class="pill-value mono-text" id="lastDataTimeText">Waiting for ESP32...</span>
+        </div>
+
+        <!-- Global Threshold Badge -->
+        <div class="telemetry-pill cursor-pointer" id="thresholdPill" title="Click to modify threshold">
+          <span class="pill-label"><i class="fa-solid fa-gauge-high"></i> Threshold</span>
+          <span class="pill-value mono-text highlight-cyan" id="headerThresholdText">1000 ADC</span>
+        </div>
+
+        <!-- Header Actions -->
+        <div class="header-actions">
+          <button id="btnToggleMute" class="btn btn-icon btn-outline" title="Toggle Alarm Audio">
+            <i class="fa-solid fa-volume-high" id="muteIcon"></i>
+          </button>
+          <button id="btnHeaderAck" class="btn btn-warning btn-ack" title="Acknowledge Active Alarm">
+            <i class="fa-solid fa-bell-slash"></i> Acknowledge Alarm
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ========================================================================= -->
+    <!-- D. OVERALL SYSTEM STATUS BANNER -->
+    <!-- ========================================================================= -->
+    <section class="system-status-banner-wrap">
+      <div class="system-status-banner status-waiting" id="systemStatusBanner">
+        <div class="status-banner-icon-wrap">
+          <div class="status-icon-ring" id="statusBannerRing">
+            <i class="fa-solid fa-clock" id="statusBannerIcon"></i>
+          </div>
+        </div>
+        <div class="status-banner-content">
+          <div class="status-banner-header">
+            <span class="status-banner-tag" id="statusBannerTag">OVERALL SYSTEM STATUS</span>
+            <span class="status-banner-time" id="statusUpdateTime">Awaiting Hardware</span>
+          </div>
+          <h2 class="status-banner-title" id="systemStatusTitle">WAITING FOR ESP32 DATA</h2>
+          <p class="status-banner-desc" id="systemStatusDesc">
+            Connect your ESP32 microcontroller via USB Serial to receive real-time sensor readings from GPIO 34 and GPIO 35.
+          </p>
+        </div>
+        <div class="status-banner-meta">
+          <div class="status-quick-badge">
+            <span class="label">Zone 1</span>
+            <span class="value unavailable" id="bannerZ1Badge">UNAVAILABLE</span>
+          </div>
+          <div class="status-quick-badge">
+            <span class="label">Zone 2</span>
+            <span class="value unavailable" id="bannerZ2Badge">UNAVAILABLE</span>
+          </div>
+          <div class="status-quick-badge">
+            <span class="label">Active Threshold</span>
+            <span class="value mono-text" id="bannerThresholdBadge">1000 ADC</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- DUAL ZONE MONITORING SECTION (B. Zone 1 & C. Zone 2) -->
+    <!-- ========================================================================= -->
+    <section class="zones-grid">
+      
+      <!-- ==================== B. ZONE 1 MONITORING CARD ==================== -->
+      <div class="zone-card" id="zone1Card">
+        <div class="zone-card-header">
+          <div class="zone-badge-wrap">
+            <span class="zone-number-badge">ZONE 01</span>
+            <div class="zone-name-container">
+              <h3 class="zone-name" id="zone1Title">Zone 1 - Storage Tank Area</h3>
+              <span class="zone-pin-tag"><i class="fa-solid fa-code-branch"></i> Sensor: GPIO 34 (gas1_val)</span>
+            </div>
+          </div>
+          <div class="zone-card-tools">
+            <button class="btn-icon-subtle" onclick="openRenameModal(1)" title="Rename Zone 1">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="zone-hero-display">
+          <!-- Large Animated Status Indicator (Grey / Green / Red) -->
+          <div class="zone-status-indicator indicator-unavailable" id="zone1Indicator">
+            <div class="indicator-inner">
+              <i class="fa-solid fa-circle-question" id="zone1IndicatorIcon"></i>
+              <span class="indicator-text" id="zone1StatusText">SENSOR DATA UNAVAILABLE</span>
+            </div>
+            <div class="indicator-wave"></div>
+          </div>
+
+          <!-- Reading Value & Gauge -->
+          <div class="zone-metrics-block">
+            <div class="reading-hero">
+              <span class="reading-number mono-text" id="zone1Reading">--</span>
+              <span class="reading-unit">ADC / 4095</span>
+            </div>
+            
+            <!-- Range Bar -->
+            <div class="zone-progress-wrap">
+              <div class="zone-progress-track">
+                <div class="zone-progress-bar bar-unavailable" id="zone1ProgressBar" style="width: 0%;"></div>
+                <div class="zone-progress-threshold-marker" id="zone1ThresholdMarker" style="left: 24.4%;" title="Threshold (1000)"></div>
+              </div>
+              <div class="progress-labels">
+                <span>0 (Clean Air)</span>
+                <span class="threshold-label" id="zone1ThresholdLabel">Threshold: 1000</span>
+                <span>4095 (Max)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Zone 1 Hardware Actuator States -->
+        <div class="zone-actuators-strip">
+          <div class="actuator-item">
+            <span class="actuator-led led-green inactive" id="z1LedGreen"></span>
+            <span class="actuator-name">Green LED (GPIO 33)</span>
+            <span class="actuator-state text-muted" id="z1LedGreenState">Waiting</span>
+          </div>
+          <div class="actuator-item">
+            <span class="actuator-led led-red inactive" id="z1LedRed"></span>
+            <span class="actuator-name">Red LED (GPIO 26)</span>
+            <span class="actuator-state text-muted" id="z1LedRedState">Waiting</span>
+          </div>
+        </div>
+
+        <!-- Zone 1 Metrics -->
+        <div class="zone-stats-grid">
+          <div class="stat-box">
+            <span class="stat-label">Lowest Value</span>
+            <span class="stat-val mono-text" id="zone1MinVal">--</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Peak Value</span>
+            <span class="stat-val mono-text" id="zone1MaxVal">--</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Average</span>
+            <span class="stat-val mono-text" id="zone1AvgVal">--</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Last Successful</span>
+            <span class="stat-val mono-text" id="zone1LastTime" style="font-size: 0.78rem;">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== C. ZONE 2 MONITORING CARD ==================== -->
+      <div class="zone-card" id="zone2Card">
+        <div class="zone-card-header">
+          <div class="zone-badge-wrap">
+            <span class="zone-number-badge accent-orange">ZONE 02</span>
+            <div class="zone-name-container">
+              <h3 class="zone-name" id="zone2Title">Zone 2 - Dispensing Unit</h3>
+              <span class="zone-pin-tag"><i class="fa-solid fa-code-branch"></i> Sensor: GPIO 35 (gas2_val)</span>
+            </div>
+          </div>
+          <div class="zone-card-tools">
+            <button class="btn-icon-subtle" onclick="openRenameModal(2)" title="Rename Zone 2">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="zone-hero-display">
+          <!-- Large Animated Status Indicator (Independent Grey / Green / Red) -->
+          <div class="zone-status-indicator indicator-unavailable" id="zone2Indicator">
+            <div class="indicator-inner">
+              <i class="fa-solid fa-circle-question" id="zone2IndicatorIcon"></i>
+              <span class="indicator-text" id="zone2StatusText">SENSOR DATA UNAVAILABLE</span>
+            </div>
+            <div class="indicator-wave"></div>
+          </div>
+
+          <!-- Reading Value & Gauge -->
+          <div class="zone-metrics-block">
+            <div class="reading-hero">
+              <span class="reading-number mono-text" id="zone2Reading">--</span>
+              <span class="reading-unit">ADC / 4095</span>
+            </div>
+            
+            <!-- Range Bar -->
+            <div class="zone-progress-wrap">
+              <div class="zone-progress-track">
+                <div class="zone-progress-bar bar-unavailable" id="zone2ProgressBar" style="width: 0%;"></div>
+                <div class="zone-progress-threshold-marker" id="zone2ThresholdMarker" style="left: 24.4%;" title="Threshold (1000)"></div>
+              </div>
+              <div class="progress-labels">
+                <span>0 (Clean Air)</span>
+                <span class="threshold-label" id="zone2ThresholdLabel">Threshold: 1000</span>
+                <span>4095 (Max)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Zone 2 Hardware Actuator States -->
+        <div class="zone-actuators-strip">
+          <div class="actuator-item">
+            <span class="actuator-led led-green inactive" id="z2LedGreen"></span>
+            <span class="actuator-name">Green LED (GPIO 25)</span>
+            <span class="actuator-state text-muted" id="z2LedGreenState">Waiting</span>
+          </div>
+          <div class="actuator-item">
+            <span class="actuator-led led-red inactive" id="z2LedRed"></span>
+            <span class="actuator-name">Red LED (GPIO 27)</span>
+            <span class="actuator-state text-muted" id="z2LedRedState">Waiting</span>
+          </div>
+        </div>
+
+        <!-- Zone 2 Metrics -->
+        <div class="zone-stats-grid">
+          <div class="stat-box">
+            <span class="stat-label">Lowest Value</span>
+            <span class="stat-val mono-text" id="zone2MinVal">--</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Peak Value</span>
+            <span class="stat-val mono-text" id="zone2MaxVal">--</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Average</span>
+            <span class="stat-val mono-text" id="zone2AvgVal">--</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Last Successful</span>
+            <span class="stat-val mono-text" id="zone2LastTime" style="font-size: 0.78rem;">--</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- HARDWARE STATUS & LCD PREVIEW -->
+    <!-- ========================================================================= -->
+    <section class="hardware-overview-card">
+      <div class="hw-card-header">
+        <h4><i class="fa-solid fa-server"></i> Hardware Peripherals & LCD Sync</h4>
+        <span class="hw-status-badge" id="hwSyncBadge"><i class="fa-solid fa-circle-notch fa-spin"></i> Awaiting Data</span>
+      </div>
+      <div class="hw-grid">
+        <!-- 16x2 LCD Simulation -->
+        <div class="lcd-display-box">
+          <div class="lcd-screen">
+            <div class="lcd-line" id="lcdLine1">Zone1 - Zone2   </div>
+            <div class="lcd-line" id="lcdLine2">Waiting Data... </div>
+          </div>
+          <span class="lcd-caption"><i class="fa-solid fa-display"></i> 16x2 I2C LCD Display (0x27, SDA: 21, SCL: 22)</span>
+        </div>
+
+        <!-- Physical Buzzer -->
+        <div class="hw-device-card">
+          <div class="hw-device-icon" id="buzzerIconWrap">
+            <i class="fa-solid fa-bullhorn" id="buzzerIcon"></i>
+          </div>
+          <div class="hw-device-info">
+            <span class="hw-device-name">Physical Buzzer</span>
+            <span class="hw-device-pin">GPIO 5</span>
+            <span class="hw-device-status status-off" id="buzzerStatusLabel">INACTIVE</span>
+          </div>
+        </div>
+
+        <!-- Calibration & Test Substance Note -->
+        <div class="hw-device-card note-card">
+          <div class="hw-device-icon info-icon">
+            <i class="fa-solid fa-flask-vial"></i>
+          </div>
+          <div class="hw-device-info">
+            <span class="hw-device-name">Test Substance Note</span>
+            <span class="hw-device-pin">Calibration Protocol</span>
+            <p class="hw-test-note">
+              <strong>Isopropyl Alcohol (IPA)</strong> is utilized as a test substance to demonstrate the gas/vapour sensor response in this prototype. Sensor readings reflect relative 12-bit ADC concentration counts (0–4095).
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- E. LIVE GRAPH SECTION (CHART.JS) -->
+    <!-- ========================================================================= -->
+    <section class="chart-section">
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title-block">
+            <h3><i class="fa-solid fa-chart-line"></i> Real-Time Gas Sensor Telemetry</h3>
+            <p class="chart-subtitle">Live time-series graph plotted strictly from received ESP32 readings (9600 Baud)</p>
+          </div>
+          <div class="chart-controls">
+            <!-- Time Window Selector -->
+            <div class="btn-group">
+              <button class="btn btn-sm btn-outline active" data-window="30">30s</button>
+              <button class="btn btn-sm btn-outline" data-window="60">1m</button>
+              <button class="btn btn-sm btn-outline" data-window="300">5m</button>
+            </div>
+            <!-- Graph Actions -->
+            <button class="btn btn-sm btn-outline" id="btnPauseChart" title="Pause / Resume Live Plotting">
+              <i class="fa-solid fa-pause" id="chartPauseIcon"></i> <span id="chartPauseText">Pause</span>
+            </button>
+            <button class="btn btn-sm btn-outline" id="btnClearChart" title="Clear Graph">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+            <button class="btn btn-sm btn-outline" id="btnExportChart" title="Save Chart Image">
+              <i class="fa-solid fa-camera"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="chart-canvas-container">
+          <canvas id="liveSensorChart"></canvas>
+        </div>
+
+        <div class="chart-footer-legend">
+          <div class="legend-item">
+            <span class="legend-dot dot-cyan"></span>
+            <span>Zone 1 Sensor (GPIO 34 - gas1_val)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot dot-orange"></span>
+            <span>Zone 2 Sensor (GPIO 35 - gas2_val)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot dot-red-dashed"></span>
+            <span>Configured Leak Threshold (<span id="chartLegendThreshold">1000</span> ADC)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- G. THRESHOLD SETTINGS & HARDWARE CONNECTION -->
+    <!-- ========================================================================= -->
+    <section class="controls-grid">
+      
+      <!-- Threshold Settings Card -->
+      <div class="control-card" id="thresholdCard">
+        <div class="control-card-header">
+          <h4><i class="fa-solid fa-sliders"></i> Leak Detection Threshold Configuration</h4>
+          <span class="badge badge-primary">Dynamic Config</span>
+        </div>
+        <div class="control-card-body">
+          <p class="control-desc">
+            Set the ADC trigger threshold (0–4095). Initial standard value is <strong>1000</strong>. Readings strictly greater than the threshold trigger a possible leak condition.
+          </p>
+
+          <div class="threshold-input-row">
+            <div class="threshold-slider-wrap">
+              <input type="range" id="thresholdRange" min="100" max="3500" step="50" value="1000" class="custom-range">
+            </div>
+            <div class="threshold-number-input">
+              <input type="number" id="thresholdInput" min="0" max="4095" value="1000" class="form-input mono-text">
+              <span class="input-unit">ADC</span>
+            </div>
+          </div>
+
+          <!-- Presets -->
+          <div class="threshold-presets">
+            <span class="preset-label">Presets:</span>
+            <button class="btn btn-xs btn-outline preset-btn" data-val="600">600 (High Sensitivity)</button>
+            <button class="btn btn-xs btn-outline preset-btn active" data-val="1000">1000 (Standard)</button>
+            <button class="btn btn-xs btn-outline preset-btn" data-val="1500">1500 (Industrial)</button>
+            <button class="btn btn-xs btn-outline preset-btn" data-val="2200">2200 (High Limit)</button>
+          </div>
+
+          <div class="threshold-actions">
+            <button class="btn btn-primary" id="btnSaveThreshold">
+              <i class="fa-solid fa-floppy-disk"></i> Apply Threshold Immediately
+            </button>
+            <span class="save-status" id="thresholdSaveStatus"></span>
+          </div>
+
+          <!-- Threshold Logic Guide -->
+          <div class="logic-guide-box">
+            <div class="guide-item"><span class="badge-dot dot-danger"></span> <strong>Reading &gt; 1000:</strong> POSSIBLE LEAK DETECTED (Red LED ON, Green LED OFF, Buzzer ON)</div>
+            <div class="guide-item"><span class="badge-dot dot-safe"></span> <strong>Reading &le; 1000:</strong> NO LEAK DETECTED (Green LED ON, Red LED OFF)</div>
+            <div class="guide-item"><span class="badge-dot dot-grey"></span> <strong>Missing / Stale Data:</strong> SENSOR DATA UNAVAILABLE</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real Serial Connection Manager Card -->
+      <div class="control-card" id="serialCard">
+        <div class="control-card-header">
+          <h4><i class="fa-solid fa-plug-circle-check"></i> ESP32 USB Serial Connection</h4>
+          <span class="badge badge-tech" id="serialCardBadge">9600 Baud</span>
+        </div>
+        <div class="control-card-body">
+          <p class="control-desc">
+            Select the Windows COM port where your ESP32 is plugged in. The background reader thread will continuously stream live sensor values without blocking Flask.
+          </p>
+
+          <div class="serial-port-toolbar">
+            <div class="form-group flex-1">
+              <label for="directPortSelect">Select COM Port:</label>
+              <div class="input-with-action">
+                <select id="directPortSelect" class="form-select">
+                  <option value="">Scanning for COM ports...</option>
+                </select>
+                <button class="btn btn-outline" id="btnRefreshDirectPorts" title="Refresh Port List">
+                  <i class="fa-solid fa-arrows-rotate"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="serial-btn-row">
+            <button class="btn btn-primary" id="btnDirectConnect">
+              <i class="fa-solid fa-link"></i> Connect ESP32
+            </button>
+            <button class="btn btn-danger hidden" id="btnDirectDisconnect">
+              <i class="fa-solid fa-link-slash"></i> Disconnect
+            </button>
+          </div>
+
+          <div class="serial-feedback-box" id="serialDirectFeedback">
+            <i class="fa-solid fa-circle-info"></i> Plug in ESP32 via USB and select COM port. (Ensure Arduino Serial Monitor is closed).
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- F. ALERT AND EVENT HISTORY SECTION (SQLITE BACKED) -->
+    <!-- ========================================================================= -->
+    <section class="events-section">
+      <div class="events-card">
+        <div class="events-card-header">
+          <div class="events-title-block">
+            <h3><i class="fa-solid fa-clipboard-list"></i> System Alerts & Event Audit Log</h3>
+            <p class="events-subtitle">Persistent SQLite record of genuine threshold crossings, alarms, and communication events</p>
+          </div>
+
+          <div class="events-actions-toolbar">
+            <!-- Zone Filter -->
+            <select id="eventZoneFilter" class="form-select">
+              <option value="ALL">All Zones</option>
+              <option value="Zone 1">Zone 1 Only</option>
+              <option value="Zone 2">Zone 2 Only</option>
+              <option value="System">System Only</option>
+            </select>
+
+            <!-- Severity Filter -->
+            <select id="eventSeverityFilter" class="form-select">
+              <option value="ALL">All Severities</option>
+              <option value="DANGER">Danger / Leak</option>
+              <option value="WARNING">Warning</option>
+              <option value="SUCCESS">Safe / Recovery</option>
+              <option value="INFO">Info</option>
+            </select>
+
+            <!-- Acknowledge Alarm Button -->
+            <button class="btn btn-warning" id="btnAckAlarms">
+              <i class="fa-solid fa-bell-slash"></i> Acknowledge Alarms
+            </button>
+
+            <!-- Export to CSV -->
+            <a href="/api/export/csv" class="btn btn-outline" download="petrol_leak_event_logs.csv">
+              <i class="fa-solid fa-file-csv"></i> Export CSV
+            </a>
+
+            <!-- Clear Log -->
+            <button class="btn btn-outline text-danger" id="btnClearLogs" title="Clear event history">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Events Table -->
+        <div class="events-table-wrap">
+          <table class="events-table">
+            <thead>
+              <tr>
+                <th style="width: 170px;">Date & Time</th>
+                <th style="width: 100px;">Zone</th>
+                <th style="width: 110px;">Reading</th>
+                <th style="width: 100px;">Threshold</th>
+                <th style="width: 160px;">Event Type</th>
+                <th>Message & Status Details</th>
+                <th style="width: 110px;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="eventsTableBody">
+              <tr>
+                <td colspan="7" class="text-center py-4 text-muted">
+                  <i class="fa-solid fa-spinner fa-spin"></i> Loading event audit trail...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="events-card-footer">
+          <span id="eventsCountLabel" class="text-muted">Showing 0 records</span>
+          <span class="text-muted"><i class="fa-solid fa-database"></i> SQLite Database: <code>petrol_monitor.db</code></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="dashboard-footer">
+      <div class="footer-content">
+        <p><strong>TWO-ZONE PETROL LEAKAGE DETECTION AND MONITORING SYSTEM USING ESP32</strong> &bull; Real-Time Hardware Integration</p>
+        <p class="footer-sub">ESP32 12-bit ADC (GPIO 34 & 35) &bull; 9600 Baud USB Serial &bull; Flask + SQLite + Chart.js</p>
+      </div>
+    </footer>
+
+  </div> <!-- End app-container -->
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: SERIAL / HARDWARE CONFIGURATION -->
+  <!-- ========================================================================= -->
+  <div class="modal-overlay hidden" id="serialModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-microchip"></i> ESP32 USB Serial Connection</h3>
+        <button class="modal-close" onclick="closeSerialModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Select the assigned COM port for your ESP32 on Windows (e.g. <code>COM3</code>, <code>COM4</code>). Close the Arduino IDE Serial Monitor before connecting.
+        </p>
+
+        <div class="form-group">
+          <label for="serialPortSelect">Available COM Ports:</label>
+          <div class="input-with-action">
+            <select id="serialPortSelect" class="form-select">
+              <option value="">Scanning for COM ports...</option>
+            </select>
+            <button class="btn btn-outline" id="btnRefreshPorts" title="Refresh COM Port List">
+              <i class="fa-solid fa-arrows-rotate"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="baudRateSelect">Baud Rate:</label>
+          <select id="baudRateSelect" class="form-select">
+            <option value="9600" selected>9600 Baud (Firmware Match)</option>
+          </select>
+        </div>
+
+        <div class="modal-status-feedback" id="serialModalFeedback"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeSerialModal()">Cancel</button>
+        <button class="btn btn-danger hidden" id="btnModalDisconnect">Disconnect</button>
+        <button class="btn btn-primary" id="btnModalConnect">Connect ESP32</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: ZONE RENAME -->
+  <!-- ========================================================================= -->
+  <div class="modal-overlay hidden" id="renameModal">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-pen-to-square"></i> Customize Zone Name</h3>
+        <button class="modal-close" onclick="closeRenameModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label id="renameLabel" for="renameInput">Zone Name:</label>
+          <input type="text" id="renameInput" class="form-input" placeholder="e.g. Tank 1, Pipeline North">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeRenameModal()">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveZoneName">Save Name</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="{{ url_for('static', filename='js/chart_handler.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
