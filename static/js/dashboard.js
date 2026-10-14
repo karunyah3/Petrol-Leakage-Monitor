@@ -6,85 +6,15 @@
 
 // Global State
 let systemState = {
-  isMuted: false,
   alarmAcknowledged: false,
-  audioEnabled: false,
   zone1Stats: { min: Infinity, max: -Infinity, sum: 0, count: 0 },
   zone2Stats: { min: Infinity, max: -Infinity, sum: 0, count: 0 },
-  renameZoneIndex: 1
+  renameZoneIndex: 1,
+  // Alert notification tracking to avoid duplicate notifications
+  activeAlerts: { zone1: false, zone2: false },
+  lastAlertState: { zone1: null, zone2: null },
+  recoveryTimer: null
 };
-
-// Web Audio API Synthesizer for Industrial Alarm Beep
-class AudioAlarmSynthesizer {
-  constructor() {
-    this.audioCtx = null;
-    this.isPlaying = false;
-    this.intervalId = null;
-  }
-
-  init() {
-    if (!this.audioCtx) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      this.audioCtx = new AudioContext();
-    }
-    if (this.audioCtx.state === 'suspended') {
-      this.audioCtx.resume();
-    }
-  }
-
-  startAlarm() {
-    if (this.isPlaying || systemState.isMuted || !systemState.audioEnabled) return;
-    this.init();
-    this.isPlaying = true;
-
-    // Pulse periodic warning double-beeps
-    const playBeep = () => {
-      if (!this.isPlaying || systemState.isMuted) return;
-      try {
-        const now = this.audioCtx.currentTime;
-        
-        // Beep 1 (High tone)
-        const osc1 = this.audioCtx.createOscillator();
-        const gain1 = this.audioCtx.createGain();
-        osc1.type = 'square';
-        osc1.frequency.setValueAtTime(880, now);
-        gain1.gain.setValueAtTime(0.12, now);
-        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-        osc1.connect(gain1);
-        gain1.connect(this.audioCtx.destination);
-        osc1.start(now);
-        osc1.stop(now + 0.15);
-
-        // Beep 2 (Alarm pulse)
-        const osc2 = this.audioCtx.createOscillator();
-        const gain2 = this.audioCtx.createGain();
-        osc2.type = 'square';
-        osc2.frequency.setValueAtTime(1174.66, now + 0.2);
-        gain2.gain.setValueAtTime(0.12, now + 0.2);
-        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-        osc2.connect(gain2);
-        gain2.connect(this.audioCtx.destination);
-        osc2.start(now + 0.2);
-        osc2.stop(now + 0.35);
-      } catch (e) {
-        console.warn('Web Audio playback error:', e);
-      }
-    };
-
-    playBeep();
-    this.intervalId = setInterval(playBeep, 1200);
-  }
-
-  stopAlarm() {
-    this.isPlaying = false;
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
-  }
-}
-
-const alarmAudio = new AudioAlarmSynthesizer();
 
 // =============================================================================
 // DOM INITIALIZATION
@@ -95,9 +25,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Preload genuine historical readings if any exist in SQLite
   fetch('/api/readings/recent?limit=40')
-    .then(res => res.json())
+    .then(res => {
+      if (res.status === 401) { window.location.href = '/login'; return null; }
+      return res.json();
+    })
     .then(data => {
-      if (data.status === 'success' && data.readings && data.readings.length > 0) {
+      if (data && data.status === 'success' && data.readings && data.readings.length > 0) {
         window.sensorChart.preloadHistory(data.readings);
       }
     })
@@ -120,49 +53,17 @@ document.addEventListener('DOMContentLoaded', () => {
 // EVENT LISTENERS SETUP
 // =============================================================================
 function setupEventListeners() {
-  // Audio Prompt
-  const btnEnableAudio = document.getElementById('btnEnableAudio');
-  if (btnEnableAudio) {
-    btnEnableAudio.addEventListener('click', () => {
-      systemState.audioEnabled = true;
-      alarmAudio.init();
-      document.getElementById('audioAlertPrompt').classList.add('hidden');
-    });
-  }
-
-  const btnDismissAudio = document.getElementById('btnDismissAudio');
-  if (btnDismissAudio) {
-    btnDismissAudio.addEventListener('click', () => {
-      document.getElementById('audioAlertPrompt').classList.add('hidden');
-    });
-  }
-
-  // Master Mute Button
-  const btnToggleMute = document.getElementById('btnToggleMute');
-  if (btnToggleMute) {
-    btnToggleMute.addEventListener('click', () => {
-      systemState.isMuted = !systemState.isMuted;
-      const muteIcon = document.getElementById('muteIcon');
-      if (systemState.isMuted) {
-        muteIcon.className = 'fa-solid fa-volume-xmark';
-        btnToggleMute.classList.add('active');
-        alarmAudio.stopAlarm();
-      } else {
-        muteIcon.className = 'fa-solid fa-volume-high';
-        btnToggleMute.classList.remove('active');
-      }
-    });
-  }
-
   // Alarm Acknowledgement Buttons
-  const btnHeaderAck = document.getElementById('btnHeaderAck');
   const btnAckAlarms = document.getElementById('btnAckAlarms');
+  const btnAlertAck = document.getElementById('btnAlertAck');
   const handleAck = () => {
     systemState.alarmAcknowledged = true;
-    alarmAudio.stopAlarm();
     
     fetch('/api/alarm/acknowledge', { method: 'POST' })
-      .then(res => res.json())
+      .then(res => {
+        if (res.status === 401) { window.location.href = '/login'; return null; }
+        return res.json();
+      })
       .then(() => {
         fetchEventLogs();
         const saveStatus = document.getElementById('thresholdSaveStatus');
@@ -172,8 +73,8 @@ function setupEventListeners() {
         }
       });
   };
-  if (btnHeaderAck) btnHeaderAck.addEventListener('click', handleAck);
   if (btnAckAlarms) btnAckAlarms.addEventListener('click', handleAck);
+  if (btnAlertAck) btnAlertAck.addEventListener('click', handleAck);
 
   // Threshold Slider & Input Synchronization
   const thresholdRange = document.getElementById('thresholdRange');
@@ -215,9 +116,12 @@ function setupEventListeners() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ threshold: val })
       })
-      .then(res => res.json())
+      .then(res => {
+        if (res.status === 401) { window.location.href = '/login'; return null; }
+        return res.json();
+      })
       .then(data => {
-        if (data.status === 'success') {
+        if (data && data.status === 'success') {
           window.sensorChart.updateThreshold(val);
           thresholdSaveStatus.textContent = `Threshold set to ${val} ADC!`;
           setTimeout(() => { thresholdSaveStatus.textContent = ''; }, 3500);
@@ -283,7 +187,10 @@ function setupEventListeners() {
     btnClearLogs.addEventListener('click', () => {
       if (confirm('Are you sure you want to clear all event audit history?')) {
         fetch('/api/events/clear', { method: 'POST' })
-          .then(res => res.json())
+          .then(res => {
+            if (res.status === 401) { window.location.href = '/login'; return null; }
+            return res.json();
+          })
           .then(() => fetchEventLogs());
       }
     });
@@ -331,6 +238,14 @@ function setupEventListeners() {
   if (btnSaveZoneName) {
     btnSaveZoneName.addEventListener('click', saveZoneName);
   }
+
+  // Recovery banner dismiss
+  const btnDismissRecovery = document.getElementById('btnDismissRecovery');
+  if (btnDismissRecovery) {
+    btnDismissRecovery.addEventListener('click', () => {
+      document.getElementById('recoveryBanner').classList.add('hidden');
+    });
+  }
 }
 
 // =============================================================================
@@ -338,9 +253,12 @@ function setupEventListeners() {
 // =============================================================================
 function fetchSystemStatus() {
   fetch('/api/status')
-    .then(res => res.json())
+    .then(res => {
+      if (res.status === 401) { window.location.href = '/login'; return null; }
+      return res.json();
+    })
     .then(data => {
-      updateDashboardUI(data);
+      if (data) updateDashboardUI(data);
     })
     .catch(err => {
       console.warn('Failed to fetch status:', err);
@@ -409,7 +327,6 @@ function updateDashboardUI(state) {
     bannerDesc.textContent = 'USB Serial interface to the ESP32 microcontroller is offline. Select COM port and connect.';
     bannerIcon.className = 'fa-solid fa-plug-circle-xmark';
     statusUpdateTime.textContent = 'Hardware Offline';
-    alarmAudio.stopAlarm();
     systemState.alarmAcknowledged = false;
   } else if (system.is_waiting) {
     banner.classList.add('status-waiting');
@@ -417,7 +334,6 @@ function updateDashboardUI(state) {
     bannerDesc.textContent = 'Serial link is established. Listening on 9600 baud for gas1_val and gas2_val transmissions...';
     bannerIcon.className = 'fa-solid fa-clock';
     statusUpdateTime.textContent = 'Awaiting Telemetry';
-    alarmAudio.stopAlarm();
     systemState.alarmAcknowledged = false;
   } else if (system.is_stale) {
     banner.classList.add('status-stale');
@@ -425,19 +341,13 @@ function updateDashboardUI(state) {
     bannerDesc.textContent = 'Telemetry timeout: No fresh data received from gas sensors in over 3.5 seconds. Check hardware wiring.';
     bannerIcon.className = 'fa-solid fa-triangle-exclamation';
     statusUpdateTime.textContent = 'Telemetry Timeout';
-    alarmAudio.stopAlarm();
     systemState.alarmAcknowledged = false;
   } else if (system.is_leak) {
     banner.classList.add('status-leak');
     bannerTitle.textContent = system.message;
-    bannerDesc.textContent = 'URGENT: Hydrocarbon / flammable vapour concentration has crossed safe operating limits. Inspect designated zone.';
+    bannerDesc.textContent = 'URGENT: Hydrocarbon / flammable vapour concentration has crossed safe operating limits. Inspect designated zone immediately.';
     bannerIcon.className = 'fa-solid fa-triangle-exclamation';
     statusUpdateTime.textContent = 'CRITICAL ALERT';
-    
-    // Play sound alert if not acknowledged
-    if (!systemState.alarmAcknowledged) {
-      alarmAudio.startAlarm();
-    }
   } else {
     // Genuine All Safe
     banner.classList.add('status-safe');
@@ -445,7 +355,6 @@ function updateDashboardUI(state) {
     bannerDesc.textContent = 'Both monitoring zones are reporting real sensor concentrations within normal baseline safety limits.';
     bannerIcon.className = 'fa-solid fa-circle-check';
     statusUpdateTime.textContent = 'Active Monitoring';
-    alarmAudio.stopAlarm();
     systemState.alarmAcknowledged = false;
   }
 
@@ -468,8 +377,170 @@ function updateDashboardUI(state) {
     window.sensorChart.addPoint(timeLabel, zone1.value, zone2.value, threshold);
   }
 
+  // 7. Update Summary Cards
+  updateSummaryCards(zone1, zone2, serial, system);
+
+  // 8. Update Leakage Alert Notification
+  updateLeakageAlert(zone1, zone2, threshold, serial, system);
+
   // Update Direct Card serial UI
   updateSerialCardUI(serial);
+}
+
+// =============================================================================
+// SUMMARY CARDS UPDATE
+// =============================================================================
+function updateSummaryCards(zone1, zone2, serial, system) {
+  const z1Status = document.getElementById('summaryZ1Status');
+  const z2Status = document.getElementById('summaryZ2Status');
+  const alertCount = document.getElementById('summaryAlertCount');
+  const connStatus = document.getElementById('summaryConnStatus');
+
+  const z1Card = document.getElementById('summaryZ1Card');
+  const z2Card = document.getElementById('summaryZ2Card');
+  const alertsCard = document.getElementById('summaryAlertsCard');
+  const connCard = document.getElementById('summaryConnCard');
+
+  // Zone 1
+  z1Card.className = 'summary-card';
+  if (zone1.is_leak) {
+    z1Status.textContent = 'LEAK DETECTED';
+    z1Card.classList.add('summary-leak');
+  } else if (zone1.is_safe) {
+    z1Status.textContent = 'SAFE';
+    z1Card.classList.add('summary-safe');
+  } else {
+    z1Status.textContent = 'UNAVAILABLE';
+    z1Card.classList.add('summary-unavailable');
+  }
+
+  // Zone 2
+  z2Card.className = 'summary-card';
+  if (zone2.is_leak) {
+    z2Status.textContent = 'LEAK DETECTED';
+    z2Card.classList.add('summary-leak');
+  } else if (zone2.is_safe) {
+    z2Status.textContent = 'SAFE';
+    z2Card.classList.add('summary-safe');
+  } else {
+    z2Status.textContent = 'UNAVAILABLE';
+    z2Card.classList.add('summary-unavailable');
+  }
+
+  // Alert count
+  let activeAlertCount = 0;
+  if (zone1.is_leak) activeAlertCount++;
+  if (zone2.is_leak) activeAlertCount++;
+  alertCount.textContent = activeAlertCount;
+  alertsCard.className = 'summary-card';
+  if (activeAlertCount > 0) {
+    alertsCard.classList.add('summary-leak');
+  } else {
+    alertsCard.classList.add('summary-safe');
+  }
+
+  // Connection
+  connCard.className = 'summary-card';
+  if (serial.is_connected && !system.is_stale) {
+    connStatus.textContent = 'Online';
+    connCard.classList.add('summary-safe');
+  } else if (serial.is_connected) {
+    connStatus.textContent = 'Stale Data';
+    connCard.classList.add('summary-unavailable');
+  } else {
+    connStatus.textContent = 'Disconnected';
+    connCard.classList.add('summary-unavailable');
+  }
+}
+
+// =============================================================================
+// LEAKAGE ALERT NOTIFICATION SYSTEM
+// =============================================================================
+function updateLeakageAlert(zone1, zone2, threshold, serial, system) {
+  const alertBanner = document.getElementById('leakAlertBanner');
+  const alertTitle = document.getElementById('leakAlertTitle');
+  const alertMessage = document.getElementById('leakAlertMessage');
+  const alertDetails = document.getElementById('leakAlertDetails');
+  const recoveryBanner = document.getElementById('recoveryBanner');
+  const recoveryMessage = document.getElementById('recoveryMessage');
+
+  // If not connected or data unavailable, hide alerts and show appropriate warning
+  if (!serial.is_connected || system.is_stale || system.is_waiting) {
+    alertBanner.classList.add('hidden');
+    // Reset tracking when disconnected so we detect transitions again on reconnect
+    systemState.lastAlertState.zone1 = null;
+    systemState.lastAlertState.zone2 = null;
+    systemState.activeAlerts.zone1 = false;
+    systemState.activeAlerts.zone2 = false;
+    return;
+  }
+
+  const z1Leak = zone1.is_leak;
+  const z2Leak = zone2.is_leak;
+  const anyLeak = z1Leak || z2Leak;
+  const prevZ1 = systemState.lastAlertState.zone1;
+  const prevZ2 = systemState.lastAlertState.zone2;
+
+  // Detect NEW leak transitions (false->true)
+  const z1NewLeak = z1Leak && prevZ1 === false;
+  const z2NewLeak = z2Leak && prevZ2 === false;
+
+  // Detect RECOVERY transitions (true->false)
+  const z1Recovery = !z1Leak && prevZ1 === true;
+  const z2Recovery = !z2Leak && prevZ2 === true;
+
+  // Show recovery notification for transitions
+  if (z1Recovery || z2Recovery) {
+    let recoveryZones = [];
+    if (z1Recovery) recoveryZones.push('Zone 1');
+    if (z2Recovery) recoveryZones.push('Zone 2');
+    recoveryMessage.textContent = `✅ ${recoveryZones.join(' & ')} returned to safe operating range. Sensor readings are now below the configured threshold.`;
+    recoveryBanner.classList.remove('hidden');
+    // Auto-dismiss after 8 seconds
+    if (systemState.recoveryTimer) clearTimeout(systemState.recoveryTimer);
+    systemState.recoveryTimer = setTimeout(() => {
+      recoveryBanner.classList.add('hidden');
+    }, 8000);
+  }
+
+  // Update tracking state
+  systemState.lastAlertState.zone1 = z1Leak;
+  systemState.lastAlertState.zone2 = z2Leak;
+  systemState.activeAlerts.zone1 = z1Leak;
+  systemState.activeAlerts.zone2 = z2Leak;
+
+  // Show or update leak alert banner
+  if (anyLeak) {
+    const now = new Date().toLocaleTimeString();
+    let leakZones = [];
+    let detailsHtml = '';
+
+    if (z1Leak) {
+      leakZones.push('Zone 1');
+      detailsHtml += `<div class="alert-detail-row">
+        <span class="alert-zone-tag">Zone 1</span>
+        <span class="alert-reading">Reading: <strong>${Math.round(zone1.value)}</strong> ADC</span>
+        <span class="alert-threshold">Threshold: <strong>${Math.round(threshold)}</strong> ADC</span>
+        <span class="alert-time">Detected: ${now}</span>
+      </div>`;
+    }
+    if (z2Leak) {
+      leakZones.push('Zone 2');
+      detailsHtml += `<div class="alert-detail-row">
+        <span class="alert-zone-tag zone2-tag">Zone 2</span>
+        <span class="alert-reading">Reading: <strong>${Math.round(zone2.value)}</strong> ADC</span>
+        <span class="alert-threshold">Threshold: <strong>${Math.round(threshold)}</strong> ADC</span>
+        <span class="alert-time">Detected: ${now}</span>
+      </div>`;
+    }
+
+    alertTitle.textContent = `⚠️ PETROL LEAKAGE ALERT — ${leakZones.join(' & ')}`;
+    alertMessage.textContent = `Possible gas/vapour leakage detected in ${leakZones.join(' and ')}. Please inspect the affected area safely and verify sensor readings.`;
+    alertDetails.innerHTML = detailsHtml;
+    alertBanner.classList.remove('hidden');
+  } else {
+    alertBanner.classList.add('hidden');
+  }
 }
 
 function updateQuickBadge(badgeEl, status) {
@@ -560,10 +631,7 @@ function updateHardwareState(zone1, zone2, system, serial) {
   const z2LedRed = document.getElementById('z2LedRed');
   const z2LedRedState = document.getElementById('z2LedRedState');
 
-  const buzzerIconWrap = document.getElementById('buzzerIconWrap');
-  const buzzerStatusLabel = document.getElementById('buzzerStatusLabel');
   const hwSyncBadge = document.getElementById('hwSyncBadge');
-
   const lcdLine1 = document.getElementById('lcdLine1');
   const lcdLine2 = document.getElementById('lcdLine2');
 
@@ -584,10 +652,6 @@ function updateHardwareState(zone1, zone2, system, serial) {
     z2LedRed.className = 'actuator-led led-red inactive';
     z2LedRedState.className = 'actuator-state text-muted';
     z2LedRedState.textContent = 'Offline';
-
-    buzzerIconWrap.className = 'hw-device-icon';
-    buzzerStatusLabel.className = 'hw-device-status status-off';
-    buzzerStatusLabel.textContent = 'INACTIVE';
 
     if (hwSyncBadge) {
       hwSyncBadge.innerHTML = '<i class="fa-solid fa-plug-circle-xmark"></i> Offline';
@@ -634,17 +698,6 @@ function updateHardwareState(zone1, zone2, system, serial) {
     z2LedRed.className = 'actuator-led led-red inactive';
     z2LedRedState.className = 'actuator-state text-muted';
     z2LedRedState.textContent = 'OFF';
-  }
-
-  // Physical Buzzer (GPIO 5)
-  if (zone1.is_leak || zone2.is_leak) {
-    buzzerIconWrap.className = 'hw-device-icon active-buzzer';
-    buzzerStatusLabel.className = 'hw-device-status status-on';
-    buzzerStatusLabel.textContent = 'ACTIVE (BUZZER ON)';
-  } else {
-    buzzerIconWrap.className = 'hw-device-icon';
-    buzzerStatusLabel.className = 'hw-device-status status-off';
-    buzzerStatusLabel.textContent = 'INACTIVE (OFF)';
   }
 
   if (hwSyncBadge) {
@@ -694,9 +747,12 @@ function fetchEventLogs() {
   const severity = document.getElementById('eventSeverityFilter')?.value || 'ALL';
 
   fetch(`/api/events?limit=40&zone=${encodeURIComponent(zone)}&severity=${encodeURIComponent(severity)}`)
-    .then(res => res.json())
+    .then(res => {
+      if (res.status === 401) { window.location.href = '/login'; return null; }
+      return res.json();
+    })
     .then(data => {
-      renderEventsTable(data.events || []);
+      if (data) renderEventsTable(data.events || []);
     })
     .catch(err => console.error('Error fetching events:', err));
 }
@@ -760,11 +816,16 @@ function refreshAllSerialPorts() {
   if (modalSelect) modalSelect.innerHTML = placeholder;
 
   fetch('/api/serial/ports')
-    .then(res => res.json())
+    .then(res => {
+      if (res.status === 401) { window.location.href = '/login'; return null; }
+      return res.json();
+    })
     .then(data => {
-      const ports = data.ports || [];
-      populatePortSelect(directSelect, ports);
-      populatePortSelect(modalSelect, ports);
+      if (data) {
+        const ports = data.ports || [];
+        populatePortSelect(directSelect, ports);
+        populatePortSelect(modalSelect, ports);
+      }
     })
     .catch(err => {
       console.error('Error listing serial ports:', err);
@@ -810,12 +871,15 @@ function connectDirectSerial() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ port: port, baud_rate: 9600 })
   })
-  .then(res => res.json())
+  .then(res => {
+    if (res.status === 401) { window.location.href = '/login'; return null; }
+    return res.json();
+  })
   .then(data => {
-    if (data.status === 'success') {
+    if (data && data.status === 'success') {
       fetchSystemStatus();
       fetchEventLogs();
-    } else {
+    } else if (data) {
       if (feedback) {
         feedback.className = 'serial-feedback-box error';
         feedback.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Connection failed: ${data.message}. (Ensure Arduino Serial Monitor is closed).`;
@@ -832,7 +896,10 @@ function connectDirectSerial() {
 
 function disconnectDirectSerial() {
   fetch('/api/serial/disconnect', { method: 'POST' })
-    .then(res => res.json())
+    .then(res => {
+      if (res.status === 401) { window.location.href = '/login'; return null; }
+      return res.json();
+    })
     .then(() => {
       fetchSystemStatus();
       fetchEventLogs();
@@ -868,16 +935,19 @@ function connectSerialFromModal() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ port: port, baud_rate: baud })
   })
-  .then(res => res.json())
+  .then(res => {
+    if (res.status === 401) { window.location.href = '/login'; return null; }
+    return res.json();
+  })
   .then(data => {
-    if (data.status === 'success') {
+    if (data && data.status === 'success') {
       feedback.className = 'modal-status-feedback success';
       feedback.textContent = `Connected successfully to ${port}`;
       document.getElementById('btnModalDisconnect').classList.remove('hidden');
       setTimeout(closeSerialModal, 1200);
       fetchSystemStatus();
       fetchEventLogs();
-    } else {
+    } else if (data) {
       feedback.className = 'modal-status-feedback error';
       feedback.textContent = data.message + ' (Close Arduino Serial Monitor first)';
     }
@@ -890,7 +960,10 @@ function connectSerialFromModal() {
 
 function disconnectSerialFromModal() {
   fetch('/api/serial/disconnect', { method: 'POST' })
-    .then(res => res.json())
+    .then(res => {
+      if (res.status === 401) { window.location.href = '/login'; return null; }
+      return res.json();
+    })
     .then(() => {
       const feedback = document.getElementById('serialModalFeedback');
       feedback.className = 'modal-status-feedback success';
@@ -926,9 +999,162 @@ function saveZoneName() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   })
-  .then(res => res.json())
+  .then(res => {
+    if (res.status === 401) { window.location.href = '/login'; return null; }
+    return res.json();
+  })
   .then(() => {
     closeRenameModal();
     fetchSystemStatus();
   });
 }
+
+// =============================================================================
+// AI SAFETY ADVISOR & HAZMAT INCIDENT RESPONSE (OPENAI)
+// =============================================================================
+let currentAiTargetZone = '';
+
+function openAiAdvisorModal() {
+  const modal = document.getElementById('aiAdvisorModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  fetchAiAnalysis();
+}
+
+function closeAiAdvisorModal() {
+  const modal = document.getElementById('aiAdvisorModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function selectAiTarget(zone) {
+  currentAiTargetZone = zone;
+  
+  // Update button active states
+  const btnAuto = document.getElementById('btnAiTargetAuto');
+  const btnZ1 = document.getElementById('btnAiTargetZ1');
+  const btnZ2 = document.getElementById('btnAiTargetZ2');
+
+  if (btnAuto) btnAuto.classList.toggle('active', zone === '');
+  if (btnZ1) btnZ1.classList.toggle('active', zone === 'Zone 1');
+  if (btnZ2) btnZ2.classList.toggle('active', zone === 'Zone 2');
+
+  fetchAiAnalysis();
+}
+
+function fetchAiAnalysis() {
+  const loadingEl = document.getElementById('aiLoadingState');
+  const contentEl = document.getElementById('aiContentState');
+
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  if (contentEl) contentEl.classList.add('hidden');
+
+  const payload = {};
+  if (currentAiTargetZone) {
+    payload.zone = currentAiTargetZone;
+  }
+
+  fetch('/api/ai/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(res => {
+    if (res.status === 401) {
+      window.location.href = '/login';
+      return null;
+    }
+    return res.json();
+  })
+  .then(data => {
+    if (loadingEl) loadingEl.classList.add('hidden');
+    if (contentEl) contentEl.classList.remove('hidden');
+
+    if (!data) return;
+
+    renderAiAnalysis(data);
+  })
+  .catch(err => {
+    console.error('Error fetching AI analysis:', err);
+    if (loadingEl) loadingEl.classList.add('hidden');
+    if (contentEl) contentEl.classList.remove('hidden');
+
+    const summaryText = document.getElementById('aiSummaryText');
+    if (summaryText) {
+      summaryText.textContent = `Unable to generate AI analysis: ${err.message}. Please verify server status.`;
+    }
+  });
+}
+
+function renderAiAnalysis(data) {
+  // Severity Badge
+  const badge = document.getElementById('aiSeverityBadge');
+  if (badge) {
+    const sev = data.severity_level || 'ELEVATED';
+    badge.className = `ai-severity-badge-large ai-severity-${sev}`;
+    badge.textContent = `${sev} HAZARD LEVEL`;
+  }
+
+  // Meta Info
+  const meta = document.getElementById('aiMetaInfo');
+  if (meta) {
+    const zoneName = data.zone_analyzed || 'Active Incident';
+    const reading = data.reading !== undefined ? Math.round(data.reading) : '--';
+    const thresh = data.threshold !== undefined ? Math.round(data.threshold) : '--';
+    meta.textContent = `${zoneName} | Reading: ${reading} ADC | Threshold: ${thresh} ADC`;
+  }
+
+  // Summary Box
+  const summary = document.getElementById('aiSummaryText');
+  if (summary) {
+    summary.textContent = data.summary || 'Emergency incident assessment active.';
+  }
+
+  // Flammability Risk
+  const flam = document.getElementById('aiFlammabilityRisk');
+  if (flam) {
+    flam.textContent = data.flammability_risk || 'Hydrocarbon vapors present. Maintain ignition control.';
+  }
+
+  // Evacuation Radius
+  const evac = document.getElementById('aiEvacuationRadius');
+  if (evac) {
+    evac.textContent = data.evacuation_radius || 'Restrict area access to emergency personnel.';
+  }
+
+  // PPE Guidance
+  const ppe = document.getElementById('aiPpeGuidance');
+  if (ppe) {
+    ppe.textContent = data.ppe_guidance || 'Standard organic vapor respirator, antistatic PPE.';
+  }
+
+  // Action Checklist
+  const actionList = document.getElementById('aiActionList');
+  if (actionList) {
+    actionList.innerHTML = '';
+    const actions = data.immediate_actions || [];
+    actions.forEach((act, idx) => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <input type="checkbox" id="aiCheck_${idx}">
+        <label for="aiCheck_${idx}">${act}</label>
+      `;
+      actionList.appendChild(li);
+    });
+  }
+
+  // Source & Note Labels
+  const sourceLabel = document.getElementById('aiSourceLabel');
+  if (sourceLabel) {
+    if (data.source && data.source.startsWith('OPENAI')) {
+      sourceLabel.textContent = `Live Analysis: ${data.source.replace('OPENAI_', 'OpenAI ')}`;
+    } else {
+      sourceLabel.textContent = 'Certified Industrial HAZMAT Emergency Protocol';
+    }
+  }
+
+  const noteLabel = document.getElementById('aiNoteLabel');
+  if (noteLabel) {
+    noteLabel.textContent = data.note || '';
+  }
+}
+

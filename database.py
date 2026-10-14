@@ -69,6 +69,17 @@ def init_db():
         )
     """)
 
+    # Table for user authentication
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     cursor.execute("SELECT value FROM system_settings WHERE key = 'threshold'")
     if not cursor.fetchone():
         cursor.execute(
@@ -282,6 +293,47 @@ def export_events_csv_string() -> str:
         ])
         
     return output.getvalue()
+
+
+# =============================================================================
+# USER AUTHENTICATION FUNCTIONS
+# =============================================================================
+
+def has_any_users() -> bool:
+    """Checks whether any user accounts exist in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as cnt FROM users")
+    count = cursor.fetchone()["cnt"]
+    conn.close()
+    return count > 0
+
+
+def create_user(username: str, password_hash: str, is_admin: int = 0) -> bool:
+    """Creates a new user with a pre-hashed password. Returns True on success."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)",
+            (username, password_hash, is_admin)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[DB ERROR] Failed to create user: {e}")
+        return False
+
+
+def get_user(username: str):
+    """Retrieves a user record by username. Returns dict or None."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, username, password_hash, is_admin FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 # Automatically initialize database schema on module import

@@ -11,21 +11,17 @@
     - Zone 1 Red LED (Alert) : GPIO 26
     - Zone 2 Green LED (Safe): GPIO 25
     - Zone 2 Red LED (Alert) : GPIO 27
-    - Physical Buzzer Alert  : GPIO 5
     - 16x2 I2C LCD Display   : Address 0x27 (SDA: GPIO 21, SCL: GPIO 22)
     - Serial Baud Rate       : 9600 Baud
 
   Threshold Rules:
     - Reading > 1000  : POSSIBLE LEAK DETECTED (Red LED ON, Green LED OFF)
     - Reading <= 1000 : NO LEAK DETECTED (Green LED ON, Red LED OFF)
-    - Buzzer activates if Zone 1 > 1000 OR Zone 2 > 1000
   ====================================================================================
 */
 
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-
-#define buz 5
 
 // Gas Sensor Analog Input Pins
 const int gas1_pin = 34;
@@ -60,7 +56,6 @@ void setup()
   lcd.print("SYSTEM STARTING");
 
   // Configure Pin Modes
-  pinMode(buz, OUTPUT);
   pinMode(gas1_pin, INPUT);
   pinMode(gas2_pin, INPUT);
 
@@ -74,7 +69,6 @@ void setup()
   digitalWrite(g2, HIGH);
   digitalWrite(r1, LOW);
   digitalWrite(r2, LOW);
-  digitalWrite(buz, LOW);
 
   delay(1500);
   lcd.clear();
@@ -127,16 +121,6 @@ void loop()
     lcd.print("No Leak");
     digitalWrite(g2, HIGH);
     digitalWrite(r2, LOW);
-  }
-
-  // Physical Buzzer Control: Activate if either zone exceeds threshold
-  if (gas1_val > THRESHOLD || gas2_val > THRESHOLD)
-  {
-    digitalWrite(buz, HIGH);
-  }
-  else
-  {
-    digitalWrite(buz, LOW);
   }
 
   // Telemetry transmission interval (500 ms = 2 Hz)

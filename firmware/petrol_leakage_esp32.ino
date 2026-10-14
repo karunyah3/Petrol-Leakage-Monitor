@@ -4,8 +4,8 @@
   ====================================================================================
   Description:
     Dual-zone gas & flammable vapour detection prototype with independent zone monitoring,
-    visual status LEDs, audio buzzer alert, 16x2 I2C LCD display, and USB Serial
-    telemetry output for real-time web dashboard integration.
+    visual status LEDs, 16x2 I2C LCD display, and USB Serial telemetry output for
+    real-time web dashboard integration.
 
   NOTE ON PROTOTYPE TESTING:
     Isopropyl alcohol is used as a safe laboratory test substance to demonstrate the
@@ -18,7 +18,6 @@
     - Green LED 2 (Zone 2 Safe) : GPIO 25
     - Red LED 1 (Zone 1 Alert)  : GPIO 26
     - Red LED 2 (Zone 2 Alert)  : GPIO 27
-    - Buzzer                    : GPIO 5
     - I2C LCD 16x2 (SDA / SCL)  : GPIO 21 (SDA) / GPIO 22 (SCL)
 
   SERIAL OUTPUT FORMAT (9600 Baud):
@@ -41,8 +40,6 @@ const int PIN_LED_R1   = 26; // Zone 1 Red LED (Alert)
 
 const int PIN_LED_G2   = 25; // Zone 2 Green LED (Safe)
 const int PIN_LED_R2   = 27; // Zone 2 Red LED (Alert)
-
-const int PIN_BUZZER   = 5;  // Active/Passive Buzzer Alert
 
 // ---------------------------------------------------------
 // THRESHOLD SETTING
@@ -67,19 +64,17 @@ void setup() {
   pinMode(PIN_LED_R1, OUTPUT);
   pinMode(PIN_LED_G2, OUTPUT);
   pinMode(PIN_LED_R2, OUTPUT);
-  pinMode(PIN_BUZZER, OUTPUT);
 
   // Configure analog input pins (ESP32 ADC is 12-bit: 0 - 4095)
   pinMode(PIN_GAS_1, INPUT);
   pinMode(PIN_GAS_2, INPUT);
   analogReadResolution(12);
 
-  // Initial LED State: Turn off all LEDs and buzzer
+  // Initial LED State: Turn off all LEDs
   digitalWrite(PIN_LED_G1, LOW);
   digitalWrite(PIN_LED_R1, LOW);
   digitalWrite(PIN_LED_G2, LOW);
   digitalWrite(PIN_LED_R2, LOW);
-  digitalWrite(PIN_BUZZER, LOW);
 
   // Initialize I2C LCD Display
   Wire.begin(21, 22); // SDA=21, SCL=22
@@ -124,16 +119,6 @@ void loop() {
   } else {
     digitalWrite(PIN_LED_G2, HIGH); // Zone 2 Green Safe ON
     digitalWrite(PIN_LED_R2, LOW);
-  }
-
-  // ---------------------------------------------------------
-  // MASTER BUZZER CONTROL
-  // ---------------------------------------------------------
-  // Buzzer activates if either Zone 1 OR Zone 2 exceeds threshold
-  if (zone1_leak || zone2_leak) {
-    digitalWrite(PIN_BUZZER, HIGH);
-  } else {
-    digitalWrite(PIN_BUZZER, LOW);
   }
 
   // ---------------------------------------------------------

@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Petrol Leakage Detection System | Real-Time Two-Zone Monitoring</title>
+  <title>Petrol Leakage Monitoring System | Real-Time Two-Zone Dashboard</title>
+  <meta name="description" content="Real-time two-zone petrol leakage detection and monitoring dashboard powered by ESP32 microcontroller">
   
   <!-- Modern Industrial Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,15 +21,6 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="theme-dark">
-  <!-- Live Audio Warning Banner -->
-  <div id="audioAlertPrompt" class="audio-alert-prompt hidden">
-    <div class="audio-prompt-content">
-      <i class="fa-solid fa-volume-high"></i>
-      <span>Enable live audio alarm chime for emergency alerts?</span>
-      <button id="btnEnableAudio" class="btn btn-sm btn-primary">Enable Audio</button>
-      <button id="btnDismissAudio" class="btn btn-sm btn-ghost">Dismiss</button>
-    </div>
-  </div>
 
   <!-- Main Application Container -->
   <div class="app-container">
@@ -44,7 +36,7 @@
         </div>
         <div class="brand-titles">
           <div class="brand-title-wrap">
-            <h1 class="project-title">Petrol Leakage Detection System</h1>
+            <h1 class="project-title">Petrol Leakage Monitoring System</h1>
             <span class="badge badge-tech"><i class="fa-solid fa-bolt"></i> ESP32 Live</span>
           </div>
           <p class="project-subtitle">
@@ -56,7 +48,7 @@
       <div class="header-telemetry-strip">
         <!-- ESP32 Connection Status & COM Port Quick Selector -->
         <div class="telemetry-pill" id="esp32Pill">
-          <span class="pill-label"><i class="fa-solid fa-microchip"></i> ESP32 Hardware</span>
+          <span class="pill-label"><i class="fa-solid fa-microchip"></i> ESP32</span>
           <span class="pill-value status-disconnected" id="esp32ConnectionText">
             <span class="pulse-dot"></span> <span id="serialStatusLabel">Disconnected</span>
           </span>
@@ -77,17 +69,98 @@
           <span class="pill-value mono-text highlight-cyan" id="headerThresholdText">1000 ADC</span>
         </div>
 
-        <!-- Header Actions -->
+        <!-- Header Actions: AI Advisor + User + Logout -->
         <div class="header-actions">
-          <button id="btnToggleMute" class="btn btn-icon btn-outline" title="Toggle Alarm Audio">
-            <i class="fa-solid fa-volume-high" id="muteIcon"></i>
+          <button class="btn btn-ai-header" id="btnHeaderAiAdvisor" onclick="openAiAdvisorModal()" title="Open AI HAZMAT Incident Response Advisor">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> AI Safety Advisor
           </button>
-          <button id="btnHeaderAck" class="btn btn-warning btn-ack" title="Acknowledge Active Alarm">
-            <i class="fa-solid fa-bell-slash"></i> Acknowledge Alarm
-          </button>
+          <span class="header-user-badge" title="Logged in user">
+            <i class="fa-solid fa-user-circle"></i> {{ username }}
+          </span>
+          <a href="/logout" class="btn btn-outline btn-sm btn-logout" title="Sign Out">
+            <i class="fa-solid fa-right-from-bracket"></i> Logout
+          </a>
         </div>
       </div>
     </header>
+
+    <!-- ========================================================================= -->
+    <!-- LEAKAGE ALERT NOTIFICATION BANNER -->
+    <!-- ========================================================================= -->
+    <div id="leakAlertBanner" class="leak-alert-banner hidden">
+      <div class="leak-alert-inner">
+        <div class="leak-alert-icon-wrap">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <div class="leak-alert-content">
+          <h3 id="leakAlertTitle">⚠️ PETROL LEAKAGE ALERT</h3>
+          <p id="leakAlertMessage"></p>
+          <div class="leak-alert-details" id="leakAlertDetails"></div>
+        </div>
+        <div class="leak-alert-actions">
+          <button class="btn btn-ai-pulse btn-sm" id="btnAlertAiAdvisor" onclick="openAiAdvisorModal()" title="Get AI Emergency Containment Protocol">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> AI Response Plan
+          </button>
+          <button class="btn btn-warning btn-sm" id="btnAlertAck" title="Acknowledge Alert">
+            <i class="fa-solid fa-bell-slash"></i> Acknowledge
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recovery notification banner -->
+    <div id="recoveryBanner" class="recovery-banner hidden">
+      <div class="recovery-inner">
+        <i class="fa-solid fa-circle-check"></i>
+        <span id="recoveryMessage">Zone returned to safe operating range.</span>
+        <button class="btn-dismiss-recovery" id="btnDismissRecovery">&times;</button>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- SUMMARY CARDS ROW -->
+    <!-- ========================================================================= -->
+    <section class="summary-cards-row">
+      <div class="summary-card" id="summaryZ1Card">
+        <div class="summary-card-icon summary-icon-z1">
+          <i class="fa-solid fa-location-dot"></i>
+        </div>
+        <div class="summary-card-body">
+          <span class="summary-card-label">Zone 1 Status</span>
+          <span class="summary-card-value" id="summaryZ1Status">UNAVAILABLE</span>
+        </div>
+      </div>
+
+      <div class="summary-card" id="summaryZ2Card">
+        <div class="summary-card-icon summary-icon-z2">
+          <i class="fa-solid fa-location-dot"></i>
+        </div>
+        <div class="summary-card-body">
+          <span class="summary-card-label">Zone 2 Status</span>
+          <span class="summary-card-value" id="summaryZ2Status">UNAVAILABLE</span>
+        </div>
+      </div>
+
+      <div class="summary-card" id="summaryAlertsCard">
+        <div class="summary-card-icon summary-icon-alerts">
+          <i class="fa-solid fa-bell"></i>
+        </div>
+        <div class="summary-card-body">
+          <span class="summary-card-label">Active Alerts</span>
+          <span class="summary-card-value mono-text" id="summaryAlertCount">0</span>
+        </div>
+      </div>
+
+      <div class="summary-card" id="summaryConnCard">
+        <div class="summary-card-icon summary-icon-conn">
+          <i class="fa-solid fa-wifi"></i>
+        </div>
+        <div class="summary-card-body">
+          <span class="summary-card-label">ESP32 Connection</span>
+          <span class="summary-card-value" id="summaryConnStatus">Disconnected</span>
+        </div>
+      </div>
+    </section>
 
     <!-- ========================================================================= -->
     <!-- D. OVERALL SYSTEM STATUS BANNER -->
@@ -209,7 +282,7 @@
             <span class="stat-val mono-text" id="zone1AvgVal">--</span>
           </div>
           <div class="stat-box">
-            <span class="stat-label">Last Successful</span>
+            <span class="stat-label">Last Updated</span>
             <span class="stat-val mono-text" id="zone1LastTime" style="font-size: 0.78rem;">--</span>
           </div>
         </div>
@@ -293,7 +366,7 @@
             <span class="stat-val mono-text" id="zone2AvgVal">--</span>
           </div>
           <div class="stat-box">
-            <span class="stat-label">Last Successful</span>
+            <span class="stat-label">Last Updated</span>
             <span class="stat-val mono-text" id="zone2LastTime" style="font-size: 0.78rem;">--</span>
           </div>
         </div>
@@ -302,7 +375,7 @@
     </section>
 
     <!-- ========================================================================= -->
-    <!-- HARDWARE STATUS & LCD PREVIEW -->
+    <!-- HARDWARE STATUS & LCD PREVIEW (Buzzer removed) -->
     <!-- ========================================================================= -->
     <section class="hardware-overview-card">
       <div class="hw-card-header">
@@ -317,18 +390,6 @@
             <div class="lcd-line" id="lcdLine2">Waiting Data... </div>
           </div>
           <span class="lcd-caption"><i class="fa-solid fa-display"></i> 16x2 I2C LCD Display (0x27, SDA: 21, SCL: 22)</span>
-        </div>
-
-        <!-- Physical Buzzer -->
-        <div class="hw-device-card">
-          <div class="hw-device-icon" id="buzzerIconWrap">
-            <i class="fa-solid fa-bullhorn" id="buzzerIcon"></i>
-          </div>
-          <div class="hw-device-info">
-            <span class="hw-device-name">Physical Buzzer</span>
-            <span class="hw-device-pin">GPIO 5</span>
-            <span class="hw-device-status status-off" id="buzzerStatusLabel">INACTIVE</span>
-          </div>
         </div>
 
         <!-- Calibration & Test Substance Note -->
@@ -440,10 +501,10 @@
             <span class="save-status" id="thresholdSaveStatus"></span>
           </div>
 
-          <!-- Threshold Logic Guide -->
+          <!-- Threshold Logic Guide (buzzer references removed) -->
           <div class="logic-guide-box">
-            <div class="guide-item"><span class="badge-dot dot-danger"></span> <strong>Reading &gt; 1000:</strong> POSSIBLE LEAK DETECTED (Red LED ON, Green LED OFF, Buzzer ON)</div>
-            <div class="guide-item"><span class="badge-dot dot-safe"></span> <strong>Reading &le; 1000:</strong> NO LEAK DETECTED (Green LED ON, Red LED OFF)</div>
+            <div class="guide-item"><span class="badge-dot dot-danger"></span> <strong>Reading &gt; Threshold:</strong> POSSIBLE LEAK DETECTED (Red LED ON, Green LED OFF)</div>
+            <div class="guide-item"><span class="badge-dot dot-safe"></span> <strong>Reading &le; Threshold:</strong> NO LEAK DETECTED (Green LED ON, Red LED OFF)</div>
             <div class="guide-item"><span class="badge-dot dot-grey"></span> <strong>Missing / Stale Data:</strong> SENSOR DATA UNAVAILABLE</div>
           </div>
         </div>
@@ -639,6 +700,88 @@
       <div class="modal-footer">
         <button class="btn btn-outline" onclick="closeRenameModal()">Cancel</button>
         <button class="btn btn-primary" id="btnSaveZoneName">Save Name</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: AI SAFETY ADVISOR & HAZMAT INCIDENT RESPONSE (OPENAI)             -->
+  <!-- ========================================================================= -->
+  <div class="modal-overlay hidden" id="aiAdvisorModal">
+    <div class="modal-card modal-lg">
+      <div class="modal-header ai-modal-header">
+        <div class="ai-modal-title">
+          <i class="fa-solid fa-shield-virus"></i>
+          <div>
+            <h3>AI Incident Safety Advisor</h3>
+            <span class="ai-powered-by"><i class="fa-solid fa-microchip"></i> Powered by OpenAI & Certified HAZMAT Protocols</span>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeAiAdvisorModal()">&times;</button>
+      </div>
+
+      <div class="modal-body ai-modal-body">
+        <!-- Target Selector bar -->
+        <div class="ai-target-bar">
+          <label><i class="fa-solid fa-bullseye"></i> Analyze Zone:</label>
+          <div class="ai-zone-buttons">
+            <button class="btn btn-sm btn-outline active" id="btnAiTargetAuto" onclick="selectAiTarget('')">Auto (Active Leak)</button>
+            <button class="btn btn-sm btn-outline" id="btnAiTargetZ1" onclick="selectAiTarget('Zone 1')">Zone 1</button>
+            <button class="btn btn-sm btn-outline" id="btnAiTargetZ2" onclick="selectAiTarget('Zone 2')">Zone 2</button>
+          </div>
+          <button class="btn btn-sm btn-primary" style="margin-left: auto;" id="btnAiRefresh" onclick="fetchAiAnalysis()">
+            <i class="fa-solid fa-arrows-rotate"></i> Re-Analyze Now
+          </button>
+        </div>
+
+        <!-- Loading spinner -->
+        <div id="aiLoadingState" class="ai-loading-container hidden">
+          <div class="ai-spinner"></div>
+          <p>Analyzing vapor concentration dynamics, ignition hazards, and generating emergency containment steps...</p>
+        </div>
+
+        <!-- Content container -->
+        <div id="aiContentState" class="ai-content-container">
+          <div class="ai-banner-row">
+            <div class="ai-severity-badge-large ai-severity-CRITICAL" id="aiSeverityBadge">CRITICAL HAZARD</div>
+            <div class="ai-meta-info" id="aiMetaInfo">Evaluating live readings...</div>
+          </div>
+
+          <div class="ai-summary-box" id="aiSummaryBox">
+            <i class="fa-solid fa-quote-left"></i>
+            <span id="aiSummaryText">Waiting for analysis...</span>
+          </div>
+
+          <div class="ai-two-col-grid">
+            <div class="ai-info-card">
+              <h4><i class="fa-solid fa-fire-flame-curved"></i> Flammability & Ignition Risk</h4>
+              <p id="aiFlammabilityRisk">Loading...</p>
+            </div>
+            <div class="ai-info-card">
+              <h4><i class="fa-solid fa-person-shelter"></i> Evacuation & Perimeter Radius</h4>
+              <p id="aiEvacuationRadius">Loading...</p>
+              <div class="ai-ppe-subcard">
+                <strong><i class="fa-solid fa-mask-ventilator"></i> Required PPE:</strong>
+                <span id="aiPpeGuidance">Loading...</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="ai-actions-card">
+            <h4><i class="fa-solid fa-list-check"></i> Immediate Emergency Containment Checklist</h4>
+            <ul id="aiActionList" class="ai-action-checklist"></ul>
+          </div>
+
+          <div class="ai-engine-footer" id="aiEngineFooter">
+            <span><i class="fa-solid fa-circle-check"></i> <span id="aiSourceLabel">OpenAI GPT-4o-mini</span></span>
+            <span id="aiNoteLabel" style="margin-left: auto; color: var(--text-muted); font-size: 0.75rem;"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeAiAdvisorModal()">Close</button>
+        <button class="btn btn-primary" onclick="window.print()"><i class="fa-solid fa-print"></i> Print Protocol</button>
       </div>
     </div>
   </div>

@@ -148,24 +148,46 @@ To verify your readings:
 
 ---
 
-## 7. Project Files Summary
+## 7. AI Incident Safety Advisor & HAZMAT Response (OpenAI)
+
+The dashboard includes an intelligent **AI Incident Safety Advisor** designed to provide immediate HAZMAT emergency mitigation protocols when hazardous vapor leaks are detected.
+
+- **Engine:** Powered by OpenAI (`gpt-4o-mini`) via `.env` configuration.
+- **Fail-Safe Offline Mode:** If the OpenAI API key is unavailable or rate-limited/uncredited, the system automatically falls back to certified industrial NFPA/OSHA rule-based emergency safety protocols without crashing.
+- **Features:**
+  - Real-time hazard severity calculation (`CRITICAL`, `HIGH`, `ELEVATED`, `SAFE`).
+  - Hydrocarbon flammability & vapor cloud explosion risk analysis.
+  - Prioritized emergency containment checklist with interactive task checkmarks.
+  - Safe perimeter evacuation radius and required PPE standards (respirators, antistatic suits).
+  - Accessible via the **AI Safety Advisor** header button or the pulsing **AI Response Plan** button inside active leak alarm banners.
+
+---
+
+## 8. Project Files Summary
 
 ```
 Petrol-Leakage-Monitor/
-├── app.py                                   # Flask web server & REST endpoints
+├── .env                                     # API secrets (OpenAI API key - gitignored)
+├── .env.example                             # Configuration template
+├── ai_advisor.py                            # OpenAI & certified HAZMAT emergency protocol engine
+├── app.py                                   # Flask web server, auth & REST endpoints
 ├── database.py                              # SQLite manager (petrol_monitor.db)
+├── reset_admin.py                           # CLI utility to reset admin credentials
 ├── serial_reader.py                         # Background USB Serial reader daemon
-├── requirements.txt                         # Dependencies: Flask, pyserial
+├── requirements.txt                         # Dependencies: Flask, pyserial, openai, python-dotenv
 ├── run.bat                                  # Windows 1-click launcher
-├── test_system.py                           # Automated unit test suite
+├── test_system.py                           # Hardware & API unit test suite
+├── test_ai_advisor.py                       # AI advisor unit and integration test suite
 ├── firmware/
-│   ├── esp32_petrol_leakage_firmware.ino    # Integrated firmware (exact pins, buzzer, fixed threshold)
+│   ├── esp32_petrol_leakage_firmware.ino    # Integrated firmware (exact pins, fixed threshold)
 │   └── petrol_leakage_esp32.ino             # Reference firmware
 ├── static/
-│   ├── css/style.css                        # Industrial IoT Dark Navy CSS
+│   ├── css/style.css                        # Industrial IoT Dark Navy CSS + AI advisor styles
 │   └── js/
 │       ├── chart_handler.js                 # Real-time streaming Chart.js
-│       └── dashboard.js                     # Live telemetry & event controller
+│       └── dashboard.js                     # Live telemetry, event & AI advisor controller
 └── templates/
-    └── index.html                           # Modern responsive dashboard template
+    ├── index.html                           # Modern responsive dashboard & AI modal
+    ├── login.html                           # User authentication screen
+    └── setup.html                           # First-time admin creation screen
 ```
