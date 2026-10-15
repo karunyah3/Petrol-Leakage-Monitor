@@ -15,6 +15,10 @@ class HardwareSerialManager:
         # Real-time sensor readings from hardware (None until received)
         self.zone1_val = None
         self.zone2_val = None
+        self.zone1_time = None
+        self.zone2_time = None
+        self.zone1_unlogged = False
+        self.zone2_unlogged = False
         self.last_data_time = None
         self.last_successful_reading_time = None
         self.stale_timeout_sec = 3.5  # Stale if no packet within 3.5s (ESP32 sends at 2Hz)
@@ -107,6 +111,10 @@ class HardwareSerialManager:
             self._disconnect_serial_locked()
             self.zone1_val = None
             self.zone2_val = None
+            self.zone1_time = None
+            self.zone2_time = None
+            self.zone1_unlogged = False
+            self.zone2_unlogged = False
             self.last_data_time = None
             
             database.log_event(
@@ -165,6 +173,10 @@ class HardwareSerialManager:
                     self.is_serial_connected = False
                     self.zone1_val = None
                     self.zone2_val = None
+                    self.zone1_time = None
+                    self.zone2_time = None
+                    self.zone1_unlogged = False
+                    self.zone2_unlogged = False
                     self.last_data_time = None
                 print(f"[SERIAL] Lost connection: {e}")
                 database.log_event(
@@ -181,8 +193,12 @@ class HardwareSerialManager:
         with self._lock:
             if zone1_val is not None:
                 self.zone1_val = zone1_val
+                self.zone1_time = now
+                self.zone1_unlogged = True
             if zone2_val is not None:
                 self.zone2_val = zone2_val
+                self.zone2_time = now
+                self.zone2_unlogged = True
                 
             self.last_data_time = now
             self.last_successful_reading_time = now
@@ -198,10 +214,14 @@ class HardwareSerialManager:
         with self._lock:
             z1 = self.zone1_val
             z2 = self.zone2_val
+            z1_time = self.zone1_time
+            z2_time = self.zone2_time
             last_time = self.last_data_time
             is_connected = self.is_serial_connected
             
-        is_stale = (last_time is None) or ((now - last_time) > self.stale_timeout_sec)
+        z1_stale = (z1_time is None) or ((now - z1_time) > self.stale_timeout_sec)
+        z2_stale = (z2_time is None) or ((now - z2_time) > self.stale_timeout_sec)
+        is_stale = (last_time is None) or ((now - last_time) > self.stale_timeout_sec) or z1_stale or z2_stale
         
         # Determine statuses based on strict hardware presence
         if not is_connected or is_stale or z1 is None or z2 is None:
@@ -218,8 +238,22 @@ class HardwareSerialManager:
             else:
                 sys_status = "SAFE"
 
-        # Log real sensor reading only when both valid readings are present and not stale
-        if is_connected and not is_stale and z1 is not None and z2 is not None:
+        # Save exactly one record per complete pair of fresh readings
+        should_log = False
+        with self._lock:
+            if (
+                is_connected
+                and not is_stale
+                and z1 is not None
+                and z2 is not None
+                and self.zone1_unlogged
+                and self.zone2_unlogged
+            ):
+                should_log = True
+                self.zone1_unlogged = False
+                self.zone2_unlogged = False
+
+        if should_log:
             database.log_reading(
                 zone1_val=z1,
                 zone2_val=z2,
@@ -285,6 +319,8 @@ class HardwareSerialManager:
         with self._lock:
             z1 = self.zone1_val
             z2 = self.zone2_val
+            z1_time = self.zone1_time
+            z2_time = self.zone2_time
             last_time = self.last_data_time
             last_successful = self.last_successful_reading_time
             is_connected = self.is_serial_connected
@@ -292,7 +328,9 @@ class HardwareSerialManager:
             serial_err = self.serial_error
             
         time_since_data = (now - last_time) if last_time else None
-        is_stale = (last_time is None) or (time_since_data is not None and time_since_data > self.stale_timeout_sec)
+        z1_stale = (z1_time is None) or ((now - z1_time) > self.stale_timeout_sec)
+        z2_stale = (z2_time is None) or ((now - z2_time) > self.stale_timeout_sec)
+        is_stale = (last_time is None) or (time_since_data is not None and time_since_data > self.stale_timeout_sec) or z1_stale or z2_stale
         
         # State calculation strictly reflecting hardware
         if not is_connected:
